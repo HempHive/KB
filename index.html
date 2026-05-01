@@ -186,6 +186,22 @@
         }
       }
 
+      /**
+       * Browsers reject play() if it runs before the media has loaded enough data
+       * after audio.load(). Retrying on loadeddata / canplay fixes local file opens;
+       * strict autoplay-with-sound policies may still require a first user gesture.
+       */
+      function wireInitialAutoplay() {
+        const tryPlay = () => {
+          void attemptPlay();
+        };
+        tryPlay();
+        queueMicrotask(tryPlay);
+        audio.addEventListener("loadeddata", tryPlay, { once: true });
+        audio.addEventListener("canplay", tryPlay, { once: true });
+        audio.addEventListener("canplaythrough", tryPlay, { once: true });
+      }
+
       async function changeTrack(nextIndex) {
         if (isTransitioning) return;
         isTransitioning = true;
@@ -280,11 +296,16 @@
         clearLongPressTimer();
       });
 
+      // When a track finishes, play the next one; after Track4 wrap to Track1.
+      audio.addEventListener("ended", () => {
+        void changeTrack(nextTrackIndex());
+      });
+
       // Load Track 1 and fade image in on first render.
       setTrack(currentIndex);
       cover.classList.remove("pre-first");
       cover.classList.add("initial-fade");
-      attemptPlay();
+      wireInitialAutoplay();
     })();
   </script>
 </body>
