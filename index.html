@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Static Music Player</title>
+  <style>
+    :root {
+      --bg: #000;
+      --fade-duration: 700ms;
+      --switch-duration: 700ms;
+      --easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .stage {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #cover {
+      max-width: 100vw;
+      max-height: 100vh;
+      object-fit: contain;
+      opacity: 1;
+      transform-origin: center center;
+      filter: saturate(1) contrast(1);
+      will-change: transform, opacity, filter;
+    }
+
+    /* Keep image hidden until the very first fade-in. */
+    #cover.pre-first {
+      opacity: 0;
+    }
+
+    /* First-load fade in */
+    #cover.initial-fade {
+      animation: initialFade var(--fade-duration) var(--easing) forwards;
+    }
+
+    /* Outgoing track transition: zoom + slight rotate + glitch/fade */
+    #cover.switch-out {
+      animation: switchOut var(--switch-duration) var(--easing) forwards;
+    }
+
+    /* Incoming track transition: settle from slight zoom/rotate + glitch effect */
+    #cover.switch-in {
+      animation: switchIn var(--switch-duration) var(--easing) forwards;
+    }
+
+    @keyframes initialFade {
+      from {
+        opacity: 0;
+        transform: scale(0.98);
+        filter: blur(2px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0);
+      }
+    }
+
+    @keyframes switchOut {
+      0% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+        filter: hue-rotate(0deg) contrast(1);
+      }
+      35% {
+        opacity: 0.9;
+        transform: scale(1.04) rotate(1.5deg);
+        filter: hue-rotate(12deg) contrast(1.15);
+      }
+      55% {
+        opacity: 0.35;
+        transform: scale(1.1) rotate(-1deg) translateX(1.5%);
+        filter: hue-rotate(-10deg) contrast(1.3);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(1.14) rotate(2deg) translateX(-1.5%);
+        filter: blur(1.5px) contrast(1.4);
+      }
+    }
+
+    @keyframes switchIn {
+      0% {
+        opacity: 1;
+        transform: scale(1.12) rotate(-2deg) translateX(1.2%);
+        filter: blur(1.5px) hue-rotate(-12deg) contrast(1.3);
+      }
+      45% {
+        opacity: 1;
+        transform: scale(1.03) rotate(1deg) translateX(-1%);
+        filter: blur(0.7px) hue-rotate(8deg) contrast(1.15);
+      }
+      70% {
+        opacity: 1;
+        transform: scale(1.01) rotate(-0.4deg);
+        filter: blur(0) hue-rotate(-4deg) contrast(1.06);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+        filter: blur(0) hue-rotate(0deg) contrast(1);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" aria-label="Music player">
+    <img id="cover" class="pre-first" alt="Current track cover image" />
+    <audio id="audio" preload="auto" autoplay playsinline></audio>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+
+      // Ordered playlist: click/tap moves forward and wraps.
+      const playlist = [
+        { image: "images/Track1.png", audio: "tracks/Track1.mp3" },
+        { image: "images/Track2.png", audio: "tracks/Track2.mp3" },
+        { image: "images/Track3.png", audio: "tracks/Track3.mp3" },
+        { image: "images/Track4.png", audio: "tracks/Track4.mp3" }
+      ];
+
+      const LONG_PRESS_MS = 550;
+      const TRANSITION_MS = 700;
+
+      const cover = document.getElementById("cover");
+      const audio = document.getElementById("audio");
+      audio.autoplay = true;
+      audio.playsInline = true;
+
+      let currentIndex = 0;
+      let isTransitioning = false;
+      let longPressTimer = null;
+      let suppressNextClick = false;
+
+      // If autoplay is blocked, wait for first user interaction and try again.
+      let pendingUserPlay = false;
+
+      function setTrack(index) {
+        const track = playlist[index];
+        cover.src = track.image;
+        audio.src = track.audio;
+        audio.load();
+      }
+
+      async function attemptPlay() {
+        try {
+          await audio.play();
+          pendingUserPlay = false;
+          return true;
+        } catch (error) {
+          pendingUserPlay = true;
+          return false;
+        }
+      }
+
+      async function changeTrack(nextIndex) {
+        if (isTransitioning) return;
+        isTransitioning = true;
+
+        // Run outgoing animation first.
+        cover.classList.remove("switch-in");
+        cover.classList.add("switch-out");
+
+        await wait(TRANSITION_MS * 0.5);
+
+        // Swap image/audio mid-transition.
+        currentIndex = nextIndex;
+        setTrack(currentIndex);
+        attemptPlay();
+
+        // Enter animation for the new cover.
+        cover.classList.remove("switch-out");
+        cover.classList.add("switch-in");
+
+        await wait(TRANSITION_MS);
+        cover.classList.remove("switch-in");
+        isTransitioning = false;
+      }
+
+      function nextTrackIndex() {
+        return (currentIndex + 1) % playlist.length;
+      }
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function startLongPressTimer() {
+        clearLongPressTimer();
+        longPressTimer = window.setTimeout(() => {
+          suppressNextClick = true; // Prevent accidental click after long press.
+          audio.pause();
+        }, LONG_PRESS_MS);
+      }
+
+      function clearLongPressTimer() {
+        if (longPressTimer !== null) {
+          window.clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      }
+
+      function handlePressStart(event) {
+        // Only treat primary mouse button as click/press.
+        if (event.type === "mousedown" && event.button !== 0) return;
+        startLongPressTimer();
+      }
+
+      function handlePressEnd() {
+        clearLongPressTimer();
+      }
+
+      async function handleActivate(event) {
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          event.preventDefault();
+          return;
+        }
+
+        // If autoplay was blocked or user paused via long-press, resume same track first.
+        if (pendingUserPlay || audio.paused) {
+          await attemptPlay();
+          return;
+        }
+
+        // Normal click/tap while playing: move to next track.
+        await changeTrack(nextTrackIndex());
+      }
+
+      // Prevent the context menu from interrupting long touch/press interaction.
+      window.addEventListener("contextmenu", (event) => event.preventDefault());
+
+      // Mouse support
+      window.addEventListener("mousedown", handlePressStart, { passive: true });
+      window.addEventListener("mouseup", handlePressEnd, { passive: true });
+      window.addEventListener("mouseleave", handlePressEnd, { passive: true });
+      window.addEventListener("click", handleActivate);
+
+      // Touch support
+      window.addEventListener("touchstart", handlePressStart, { passive: true });
+      window.addEventListener("touchend", handlePressEnd, { passive: true });
+      window.addEventListener("touchcancel", handlePressEnd, { passive: true });
+      window.addEventListener("touchend", handleActivate);
+
+      // Safety: if pointer is released unexpectedly, clear timer.
+      window.addEventListener("blur", () => {
+        clearLongPressTimer();
+      });
+
+      // Load Track 1 and fade image in on first render.
+      setTrack(currentIndex);
+      cover.classList.remove("pre-first");
+      cover.classList.add("initial-fade");
+      attemptPlay();
+    })();
+  </script>
+</body>
+</html>
