@@ -164,6 +164,7 @@
       let isTransitioning = false;
       let longPressTimer = null;
       let suppressNextClick = false;
+      let ignoreNextClick = false;
 
       // If autoplay is blocked, wait for first user interaction and try again.
       let pendingUserPlay = false;
@@ -260,6 +261,16 @@
       }
 
       async function handleActivate(event) {
+        // Touch interactions often emit a follow-up synthetic click.
+        // Ignore that extra click to avoid accidental immediate track skip.
+        if (event.type === "touchend") {
+          ignoreNextClick = true;
+        } else if (event.type === "click" && ignoreNextClick) {
+          ignoreNextClick = false;
+          event.preventDefault();
+          return;
+        }
+
         if (suppressNextClick) {
           suppressNextClick = false;
           event.preventDefault();
